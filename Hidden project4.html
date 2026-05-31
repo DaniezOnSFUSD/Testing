@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DanieOnSFUSD GRID PVP BETA</title>
+    <style>
+        :root {
+            --neon-blue: #00f0ff;
+            --neon-magenta: #ff007f;
+            --neon-green: #39ff14;
+            --matrix-dark: #030712;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--matrix-dark);
+            background-image: 
+                linear-gradient(rgba(0, 240, 255, 0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 240, 255, 0.02) 1px, transparent 1px);
+            background-size: 20px 20px;
+            color: #f8fafc;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        /* WATERMARK BANNER */
+        .beta-header {
+            font-size: 1rem;
+            font-weight: 900;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: #ffffff;
+            background: rgba(0, 240, 255, 0.1);
+            padding: 0.6rem 2rem;
+            border-radius: 4px;
+            border-left: 4px solid var(--neon-blue);
+            border-right: 4px solid var(--neon-magenta);
+            box-shadow: 0 0 20px rgba(0, 240, 255, 0.2);
+            margin-bottom: 1.5rem;
+            text-align: center;
+        }
+
+        /* Glass HUD Header */
+        .hud-container {
+            display: flex;
+            gap: 3rem;
+            margin-bottom: 1.5rem;
+            padding: 1rem 2.5rem;
+            background: rgba(17, 24, 39, 0.85);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(0, 240, 255, 0.2);
+            border-radius: 6px;
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.7);
+        }
+
+        .player-stats {
+            display: flex;
+            flex-direction: column;
+            gap: 0.4rem;
+            width: 180px;
+        }
+
+        .player-label {
+            font-weight: 900;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+
+        .p1-color { color: var(--neon-blue); text-shadow: 0 0 8px rgba(0, 240, 255, 0.6); }
+        .p2-color { color: var(--neon-green); text-shadow: 0 0 8px rgba(57, 255, 20, 0.6); }
+
+        .health-bar-bg {
+            width: 100%;
+            height: 10px;
+            background: #111827;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .health-bar-fill {
+            height: 100%;
+            width: 100%;
+            transition: width 0.15s ease-out;
+        }
+
+        #p1Health { background: var(--neon-blue); box-shadow: 0 0 12px var(--neon-blue); }
+        #p2Health { background: var(--neon-green); box-shadow: 0 0 12px var(--neon-green); }
+
+        .game-wrapper {
+            position: relative;
+            border-radius: 4px;
+            overflow: hidden;
+            box-shadow: 0 0 40px rgba(0, 0, 0, 0.8);
+            border: 2px solid rgba(0, 240, 255, 0.3);
+        }
+
+        canvas {
+            display: block;
+            background: #070a12;
+        }
+
+        .controls-hint {
+            margin-top: 1.5rem;
+            font-size: 0.7rem;
+            letter-spacing: 0.05em;
+            color: #9ca3af;
+            text-align: center;
+            background: rgba(17, 24, 39, 0.8);
+            padding: 0.5rem 1.5rem;
+            border-radius: 4px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="beta-header">
+        DanieOnSFUSD GRID PVP PUBLIC BETA TESTING
+    </div>
+
+    <div class="hud-container">
+        <div class="player-stats">
+            <span class="player-label p1-color">> PLAYER_1</span>
+            <div class="health-bar-bg">
+                <div id="p1Health" class="health-bar-fill"></div>
+            </div>
+        </div>
+        <div class="player-stats">
+            <span class="player-label p2-color">> SMART_AI_BOT</span>
+            <div class="health-bar-bg">
+                <div id="p2Health" class="health-bar-fill"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="game-wrapper">
+        <canvas id="gameCanvas" width="600" height="520"></canvas>
+    </div>
+
+    <div class="controls-hint">
+        CONTROLS — MOVE: WASD KEYS | DROP COMBAT CHARGE: SPACEBAR
+    </div>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+
+        const TILE_SIZE = 40;
+        const ROWS = 13;
+        const COLS = 15;
+
+        let grid = [];
+        let hazards = [];
+        let explosions = [];
+
+        function initMap() {
+            for (let r = 0; r < ROWS; r++) {
+                grid[r] = [];
+                for (let c = 0; c < COLS; c++) {
+                    if (r === 0 || r === ROWS - 1 || c === 0 || c === COLS - 1 || (r % 2 === 0 && c % 2 === 0)) {
+                        grid[r][c] = 1; // Permanent Infrastructure Wall
+                    } else if (Math.random() > 0.45 && !isStartingZone(r, c)) {
+                        grid[r][c] = 2; // Breakable Obstacle Block
+                    } else {
+                        grid[r][c] = 0; // Empty Walkway
+                    }
+                }
+            }
+        }
+
+        // Keep corners completely empty at launch so spawn locations are clear
+        function isStartingZone(r, c) {
+            return (r <= 2 && c <= 2) || (r >= ROWS - 3 && c >= COLS - 3);
+        }
+
+        class Player {
+            constructor(x, y, color, controls, healthId, shadowColor) {
+                this.x = x;
+                this.y = y;
+                this.color = color;
+                this.shadowColor = shadowColor;
+                this.controls = controls;
+                this.health = 100;
+                this.healthId = healthId;
+            }
+
+            move(dx, dy) {
+                if (this.health <= 0) return;
+                let nextX = this.x + dx;
+                let nextY = this.y + dy;
+
+                if (grid[nextY] && grid[nextY][nextX] === 0) {
+                    const hasHazard = hazards.some(h => h.x === nextX && h.y === nextY);
+                    if (!hasHazard) {
+                        this.x = nextX;
+                        this.y = nextY;
+                    }
+                }
+            }
+
+            damage(amount) {
+                this.health = Math.max(0, this.health - amount);
+                document.getElementById(this.healthId).style.width = `${this.health}%`;
+            }
+
+            draw() {
+                if (this.health <= 0) return;
+                ctx.save();
+                ctx.shadowBlur = 12;
+                ctx.shadowColor = this.shadowColor;
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.roundRect(this.x * TILE_SIZE + 6, this.y * TILE_SIZE + 6, TILE_SIZE - 12, TILE_SIZE - 12, 4);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        // --- ANTI-SUICIDE RADAR POWERED AI BOT ---
+        class AIPlayer extends Player {
+            constructor(x, y, color, healthId, shadowColor) {
+                super(x, y, color, {}, healthId, shadowColor);
+                this.decisionCooldown = 0;
+            }
+
+            update(dt) {
+                if (this.health <= 0) return;
+
+                this.decisionCooldown -= dt;
+                if (this.decisionCooldown > 0) return;
+                
+                this.decisionCooldown = 250; // Engine processing intervals
+
+                // 1. ESCAPE ENGAGEMENT: Am I inside a cross blast line of fire?
+                if (this.isTileInBlastZone(this.x, this.y)) {
+                    this.fleeToSafety();
+                    return;
+                }
+
+                // 2. TACTICAL COMBAT DEPLOYMENT: Check for nearby obstacle or human operator
+                if (this.isTargetAdjacent(2) || this.isTargetAdjacent(player1)) {
+                    // PREDICTIVE RADAR CHECK: Run virtual trace logic before deploying item
+                    if (this.simulatedDropIsSafe()) {
+                        if (!hazards.some(h => h.x === this.x && h.y === this.y)) {
+                            hazards.push(new Hazard(this.x, this.y, this));
+                            this.fleeToSafety(); // Instantly break away to the clean vector
+                            return;
+                        }
+                    }
+                }
+
+                // 3. SECTOR NAVIGATION: Track down player
+                this.hunt(player1);
+            }
+
+            isTargetAdjacent(targetTypeOrObj) {
+                const dirs = [[0,1], [0,-1], [1,0], [-1,0]];
+                return dirs.some(([dx, dy]) => {
+                    let tx = this.x + dx;
+                    let ty = this.y + dy;
+                    if (typeof targetTypeOrObj === 'number') {
+                        return grid[ty] && grid[ty][tx] === targetTypeOrObj;
+                    } else {
+                        return targetTypeOrObj.x === tx && targetTypeOrObj.y === ty;
+                    }
+                });
+            }
+
+            // Checks mathematically if a coordinate index is intersection lines with any drop charge
+            isTileInBlastZone(x, y) {
+                return hazards.some(h => {
+                    if (h.x === x && h.y === y) return true;
+                    const dirs = [[0,1], [0,-1], [1,0], [-1,0]];
+                    let inBlast = false;
+                    
+                    dirs.forEach(([dx, dy]) => {
+                        for (let i = 1; i <= h.range; i++) {
+                            let tx = h.x + dx * i;
+                            let ty = h.y + dy * i;
+                            if (grid[ty] && grid[ty][tx] !== undefined) {
+                                if (grid[ty][tx] === 1) break; // Infrastructure walls break raytrace
+                                if (tx === x && ty === y) {
+                                    inBlast = true;
+                                }
+                                if (grid[ty][tx] === 2) break; // Obstacles absorb blast lines
+                            }
+                        }
+                    });
+                    return inBlast;
+                });
+            }
+
+            // Runs ahead-of-time calculation to prevent bot trapping itself in dead ends
+            simulatedDropIsSafe() {
+                const fakeBomb = { x: this.x, y: this.y, range: 3 };
+                const dirs = [[0,1], [0,-1], [1,0], [-1,0]];
+                let safeTileFound = false;
+
+                for (let [dx, dy] of dirs) {
+                    let tx = this.x + dx;
+                    let ty = this.y + dy;
+
+                    if (grid[ty] && grid[ty][tx] === 0) {
+                        let crossHit = (tx === fakeBomb.x || ty === fakeBomb.y);
+                        let distance = Math.abs(tx - fakeBomb.x) + Math.abs(ty - fakeBomb.y);
+                        
+                        if (crossHit && distance <= fakeBomb.range) {
+                            // If step is inside straight line, check if a secondary corner turn is open
+                            const sideDirs = [[0,1], [0,-1], [1,0], [-1,0]];
+                            for (let [sdx, sdy] of sideDirs) {
+                                let sx = tx + sdx;
+                                let sy = ty + sdy;
+                                if (grid[sy] && grid[sy][sx] === 0 && sx !== fakeBomb.x && sy !== fakeBomb.y) {
+                                    safeTileFound = true; 
+                                    break;
+                                }
+                            }
+                        } else {
+                            // Already completely clear of the blast axis vector
+                            safeTileFound = true;
+                            break;
+                        }
+                    }
+                }
+                return safeTileFound;
+            }
+
+            fleeToSafety() {
+                const dirs = [[0,1], [0,-1], [1,0], [-1,0]].sort(() => Math.random() - 0.5);
+                
+                // Absolute priority: Seek out tiles with zero active threat profiles
+                for (let [dx, dy] of dirs) {
+                    let tx = this.x + dx;
+                    let ty = this.y + dy;
+                    if (grid[ty] && grid[ty][tx] === 0 && !this.isTileInBlastZone(tx, ty)) {
+                        this.move(dx, dy);
+                        return;
+                    }
+                }
+
+                // Backup alternative: Step into any layout open tile to prevent logic lock
+                for (let [dx, dy] of dirs) {
+                    let tx = this.x + dx;
+                    let ty = this.y + dy;
+                    if (grid[ty] && grid[ty][tx] === 0) {
+                        this.move(dx, dy);
+                        return;
+                    }
+                }
+            }
+
+            hunt(target) {
+                let dx = 0, dy = 0;
+
+                if (target.x > this.x) dx = 1;
+                else if (target.x < this.x) dx = -1;
+                else if (target.y > this.y) dy = 1;
+                else if (target.y < this.y) dy = -1;
+
+                // Move toward user, verified against active threat fields
+                if (dx !== 0 && grid[this.y] && grid[this.y][this.x + dx] === 0 && !this.isTileInBlastZone(this.x + dx, this.y)) {
+                    this.move(dx, 0);
+                } else if (dy !== 0 && grid[this.y + dy] && grid[this.y + dy][this.x] === 0 && !this.isTileInBlastZone(this.x, this.y + dy)) {
+                    this.move(0, dy);
+                } else {
+                    this.fleeToSafety(); 
+                }
+            }
+        }
+
+        class Hazard {
+            constructor(x, y, owner) {
+                this.x = x;
+                this.y = y;
+                this.owner = owner;
+                this.fuse = 1800; 
+                this.range = 3; 
+            }
+
+            update(dt) {
+                this.fuse -= dt;
+                if (this.fuse <= 0) {
+                    this.detonate();
+                    return false; 
+                }
+                return true;
+            }
+
+            detonate() {
+                const directions = [[0,0], [0,1], [0,-1], [1,0], [-1,0]];
+                
+                directions.forEach(([dx, dy]) => {
+                    for (let i = (dx === 0 && dy === 0 ? 0 : 1); i <= this.range; i++) {
+                        let tx = this.x + dx * i;
+                        let ty = this.y + dy * i;
+
+                        if (grid[ty] && grid[ty][tx] !== undefined) {
+                            if (grid[ty][tx] === 1) break; // Hard walls contain vectors cleanly
+
+                            explosions.push({ x: tx, y: ty, duration: 250 });
+
+                            [player1, player2].forEach(p => {
+                                if (p.x === tx && p.y === ty) p.damage(25);
+                            });
+
+                            if (grid[ty][tx] === 2) {
+                                grid[ty][tx] = 0; // Destroy crate
+                                break; 
+                            }
+                        }
+                    }
+                });
+            }
+
+            draw() {
+                let pulse = Math.sin(Date.now() / 80) * 2.5;
+                ctx.save();
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = "#ff007f";
+                ctx.fillStyle = "#ff007f";
+                ctx.beginPath();
+                ctx.arc(this.x * TILE_SIZE + TILE_SIZE/2, this.y * TILE_SIZE + TILE_SIZE/2, (TILE_SIZE/3.5) + pulse, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.fillStyle = "#ffffff";
+                ctx.beginPath();
+                ctx.arc(this.x * TILE_SIZE + TILE_SIZE/2, this.y * TILE_SIZE + TILE_SIZE/2, TILE_SIZE/6, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        const player1 = new Player(1, 1, "#00f0ff", { up: "KeyW", down: "KeyS", left: "KeyA", right: "KeyD", action: "Space" }, "p1Health", "#00f0ff");
+        const player2 = new AIPlayer(COLS - 2, ROWS - 2, "#39ff14", "p2Health", "#39ff14"); 
+
+        window.addEventListener("keydown", (e) => {
+            if (e.code === player1.controls.up) player1.move(0, -1);
+            if (e.code === player1.controls.down) player1.move(0, 1);
+            if (e.code === player1.controls.left) player1.move(-1, 0);
+            if (e.code === player1.controls.right) player1.move(1, 0);
+            if (e.code === player1.controls.action && player1.health > 0) {
+                if (!hazards.some(h => h.x === player1.x && h.y === player1.y)) {
+                    hazards.push(new Hazard(player1.x, player1.y, player1));
+                }
+            }
+        });
+
+        let lastTime = performance.now();
+
+        function gameLoop(currentTime) {
+            let dt = currentTime - lastTime;
+            lastTime = currentTime;
+
+            hazards = hazards.filter(h => h.update(dt));
+            explosions = explosions.filter(exp => {
+                exp.duration -= dt;
+                return exp.duration > 0;
+            });
+
+            player2.update(dt);
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Render Core Canvas Environment Grid Layout
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    if (grid[r][c] === 1) {
+                        ctx.fillStyle = "#111827"; 
+                        ctx.fillRect(c * TILE_SIZE, r * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                        ctx.strokeStyle = "#1f2937";
+                        ctx.strokeRect(c * TILE_SIZE, r * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                    } else if (grid[r][c] === 2) {
+                        ctx.fillStyle = "#1f2937"; 
+                        ctx.fillRect(c * TILE_SIZE + 2, r * TILE_SIZE + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+                        ctx.strokeStyle = "rgba(255, 0, 127, 0.3)";
+                        ctx.strokeRect(c * TILE_SIZE + 2, r * TILE_SIZE + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+                    } else {
+                        ctx.fillStyle = "rgba(0, 240, 255, 0.05)";
+                        ctx.fillRect(c * TILE_SIZE + TILE_SIZE/2 - 1, r * TILE_SIZE + TILE_SIZE/2 - 1, 2, 2);
+                    }
+                }
+            }
+
+            hazards.forEach(h => h.draw());
+            
+            // Render active particle line frame trails
+            explosions.forEach(exp => {
+                ctx.fillStyle = "rgba(255, 0, 127, 0.4)";
+                ctx.fillRect(exp.x * TILE_SIZE, exp.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                ctx.fillStyle = "#ffffff";
+                ctx.fillRect(exp.x * TILE_SIZE + 10, exp.y * TILE_SIZE + 10, TILE_SIZE - 20, TILE_SIZE - 20);
+            });
+
+            player1.draw();
+            player2.draw();
+
+            // Termination monitor check
+            if (player1.health <= 0 || player2.health <= 0) {
+                ctx.fillStyle = "rgba(3, 7, 18, 0.9)";
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                ctx.fillStyle = "#ffffff";
+                ctx.font = "bold 18px 'Courier New'";
+                ctx.textAlign = "center";
+                
+                let winText = ">> SIMULATION DRAW MATCH <<";
+                if (player1.health > 0) winText = ">> PLAYER 1 ENGAGEMENT VICTORIOUS <<";
+                if (player2.health > 0) winText = ">> AI BOT ENGAGEMENT VICTORIOUS <<";
+                
+                ctx.fillText(winText, canvas.width / 2, canvas.height / 2 - 10);
+                
+                ctx.fillStyle = "#4b5563";
+                ctx.font = "12px 'Courier New'";
+                ctx.fillText("EXECUTE BROWSER REFRESH (F5) TO CYCLICALLY BOOT NEXT INSTANCE", canvas.width / 2, canvas.height / 2 + 25);
+                return; 
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        initMap();
+        requestAnimationFrame(gameLoop);
+    </script>
+</body>
+</html>
